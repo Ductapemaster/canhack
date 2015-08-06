@@ -26,31 +26,31 @@
 static int sk;
 
 enum frame_ids {
-	TOY_WHEEL_SPEED_A = 0x0b0,
-	TOY_WHEEL_SPEED_B = 0x0b2,
-	TOY_UNK_B4 = 0x0b4,
-	TOY_BRAKE = 0x224,
-	TOY_THROTTLE = 0x2c1,
-	TOY_ENGINE = 0x2c4,
-	TOY_FUEL_USAGE = 0x398,
+    SHIFTER = 0x12F85150,
+    DRIVER_DOORS = 0x12F83010,
+    TRUNK = 0x12F84310,
+    TURN_SIG = 0x0AF87010
 };
 
 #define UNKNOWN_COUNT 1024
 static int unknown[UNKNOWN_COUNT];
 
 union toyoframe {
+
 	struct __packed {
 		uint16_t a;
 		uint16_t b;
 		uint8_t flags;
 		uint8_t seq;
 	} wheel_speed;
+
 	struct __packed {
 		uint32_t _pad;
 		uint8_t distance_a;
 		uint16_t speed;
 		uint8_t distance_b;
 	} unkb4;
+
 	struct __packed {
 		uint8_t flags;
 		uint8_t _pad0;
@@ -61,6 +61,7 @@ union toyoframe {
 		uint8_t _pad5;
 		uint8_t _pad6;
 	} brake;
+
 	struct __packed {
 		uint8_t flags0;
 		int16_t unk0;
@@ -68,6 +69,7 @@ union toyoframe {
 		uint8_t unk2;
 		int16_t throttle;
 	} throttle;
+
 	struct __packed {
 		uint16_t rpm;
 		uint8_t _pad0;
@@ -77,9 +79,31 @@ union toyoframe {
 		uint8_t unk1;
 		int8_t unk2;
 	} engine;
+
 	struct __packed {
 		int16_t fuel_usage;
 	} fuel_usage;
+
+    struct __packed {
+        uint16_t gear;
+        uint8_t unk1;
+        uint8_t unk2;
+        uint8_t unk3;
+        uint8_t unk4;
+    } shifter;
+
+    struct __packed {
+        uint8_t flag;
+    } drv_doors;
+
+    struct __packed {
+        uint8_t flag;
+    } trunk;
+    
+    struct __packed {
+        uint8_t _pad1;
+        uint8_t flag;
+    } turn_sig;
 };
 
 static void unknown_frame(int id)
@@ -107,72 +131,66 @@ static void unknown_frame(int id)
 
 static void process_one(struct can_frame *frm)
 {
-	int i;
+	//int i;
 	union toyoframe *toy;
 
 	toy = (union toyoframe *)frm->data;
+    
+    // CAN Arbitration ID is 29 bits, so mask off the upper 3 bits
+    // What do the upper 3 bits mean in libsocketCAN?? Flags?	
+    switch (frm->can_id & 0x7FFFFFFF) {
 
-	switch (frm->can_id) {
-	case TOY_WHEEL_SPEED_A:
-	case TOY_WHEEL_SPEED_B:
-		i = (frm->can_id == TOY_WHEEL_SPEED_A) ? 1 : 2;
-		move(i, 1);
-		clrtoeol();
-		mvprintw(i, 1, "wheel: a=%5d b=%5d (delta=%5d) flags=%02x seq=%02x",
-				be16toh(toy->wheel_speed.a),
-				be16toh(toy->wheel_speed.b),
-				be16toh(toy->wheel_speed.a) - be16toh(toy->wheel_speed.b),
-				toy->wheel_speed.flags,
-				toy->wheel_speed.seq);
-		break;
-	case TOY_UNK_B4:
-		move(3, 1);
-		clrtoeol();
-		mvprintw(3, 1, "unk_b4: distance_a=%3d speed=%5d distance_b=%3d",
-				toy->unkb4.distance_a,
-				be16toh(toy->unkb4.speed),
-				toy->unkb4.distance_b
-				);
-		break;
-		break;
-	case TOY_BRAKE:
-		move(4, 1);
-		clrtoeol();
-		mvprintw(4, 1, "brake: flags=%02x [%s]",
-				toy->brake.flags,
-				(toy->brake.flags) ? "ON" : "  ");
-		break;
-	case TOY_THROTTLE:
-		move(5, 1);
-		clrtoeol();
-		mvprintw(5, 1, "throttle: flags0=%02x unk0=%5hd unk1=%5hd, unk2=%03hhd throttle=%4hu",
-				toy->throttle.flags0, /* bit 3: engine break? */
-				be16toh(toy->throttle.unk0),
-				be16toh(toy->throttle.unk1),
-				toy->throttle.unk2,
-				be16toh(toy->throttle.throttle)
-				);
-		break;
-	case TOY_ENGINE:
-		move(6, 1);
-		clrtoeol();
-		mvprintw(6, 1, "engine: rpm=%5hd unk0=%3d unk1=%3d, unk2=%3hhd",
-				be16toh(toy->engine.rpm),
-				toy->engine.unk0,
-				toy->engine.unk1,
-				toy->engine.unk2
-				);
-		break;
-	case TOY_FUEL_USAGE:
-		move(7, 1);
-		clrtoeol();
-		mvprintw(7, 1, "fuel_usage: %5hd",
-				be16toh(toy->fuel_usage.fuel_usage));
-		break;
-	default:
-		unknown_frame(frm->can_id);
-	}
+        case SHIFTER:
+            
+            move(1, 1);
+            clrtoeol();
+           
+            // Endianness of the 16 bit gear value is wrong - need to check
+            mvprintw(1, 1, "Gear Bytes=%04X unk1=%02X unk2=%02X unk3=%02X unk4=%02X",
+                    toy->shifter.gear,
+                    toy->shifter.unk1,
+                    toy->shifter.unk2,
+                    toy->shifter.unk3,
+                    toy->shifter.unk4
+                    );
+            break;
+        
+        case DRIVER_DOORS:
+            move(2, 1);
+            clrtoeol();
+            mvprintw(2, 1, "Driver Door: %s Driver Rear Door: %s Raw Bytes=%02X",
+                    (toy->drv_doors.flag & 0x80) ? "Open" : "Clsd",
+                    (toy->drv_doors.flag & 0x20) ? "Open" : "Clsd",
+                    
+                    toy->drv_doors.flag
+                    );
+            break;
 
+        case TRUNK:
+            move(3, 1);
+            clrtoeol();
+            mvprintw(3, 1, "Trunk: %s Raw Bytes=%02X",
+                    (toy->trunk.flag & 0x80) ? "Open" : "Clsd",
+                    toy->trunk.flag
+                    );
+            break;
+
+        case TURN_SIG:
+            move(4, 1);
+            clrtoeol();
+            mvprintw(4, 1, "Turn Signal: %s-%s",                  
+                    (toy->turn_sig.flag & 0x80) ? "<" : "-",
+                    (toy->turn_sig.flag & 0x40) ? ">" : "-"           
+                    );
+            break;
+        
+        default:
+            //break;
+            unknown_frame(frm->can_id & 0x7FFFFFFF);
+        
+    }
+    
+        
 	refresh();
 }
 
