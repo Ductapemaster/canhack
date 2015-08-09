@@ -28,82 +28,74 @@ static int sk;
 enum frame_ids {
     SHIFTER = 0x12F85150,
     DRIVER_DOORS = 0x12F83010,
+    PASS_DOORS = 0x12F84010,
     TRUNK = 0x12F84310,
-    TURN_SIG = 0x0AF87010
+    TURN_SIG = 0x0AF87010,
+    WHEELS = 0x0EF86350,
+    BRAKE_PDL = 0x12F81010,
+    UNK2 = 0x12F83110,
+    RPM = 0x12F85050
 };
 
 #define UNKNOWN_COUNT 1024
 static int unknown[UNKNOWN_COUNT];
 
-union toyoframe {
+union dataframe {
 
 	struct __packed {
-		uint16_t a;
-		uint16_t b;
-		uint8_t flags;
-		uint8_t seq;
-	} wheel_speed;
-
-	struct __packed {
-		uint32_t _pad;
-		uint8_t distance_a;
-		uint16_t speed;
-		uint8_t distance_b;
-	} unkb4;
-
-	struct __packed {
-		uint8_t flags;
-		uint8_t _pad0;
-		uint8_t _pad1;
-		uint8_t _pad2;
-		uint8_t _pad3;
-		uint8_t _pad4;
-		uint8_t _pad5;
-		uint8_t _pad6;
-	} brake;
-
-	struct __packed {
-		uint8_t flags0;
-		int16_t unk0;
-		int16_t unk1;
-		uint8_t unk2;
-		int16_t throttle;
-	} throttle;
-
-	struct __packed {
-		uint16_t rpm;
-		uint8_t _pad0;
-		uint8_t unk0;
-		uint8_t _pad1;
-		uint8_t _pad2;
-		uint8_t unk1;
-		int8_t unk2;
-	} engine;
-
-	struct __packed {
-		int16_t fuel_usage;
-	} fuel_usage;
-
-    struct __packed {
         uint16_t gear;
         uint8_t unk1;
         uint8_t unk2;
         uint8_t unk3;
         uint8_t unk4;
-    } shifter;
+    } shifter_frm;
 
     struct __packed {
         uint8_t flag;
-    } drv_doors;
+    } drv_doors_frm;
 
     struct __packed {
         uint8_t flag;
-    } trunk;
+    } pass_doors_frm;
+
+    struct __packed {
+        uint8_t flag;
+    } trunk_frm;
     
     struct __packed {
         uint8_t _pad1;
         uint8_t flag;
-    } turn_sig;
+    } turn_sig_frm;
+
+    struct __packed {
+        uint8_t wheel1;
+        uint8_t wheel2;
+        uint8_t wheel3;
+        uint8_t wheel4;
+        uint16_t _pad;
+        uint16_t counter;
+    } wheels_frm;
+
+    struct __packed {
+        uint8_t pedal_flag;
+        uint8_t _pad1;
+        uint8_t unk2;
+        uint8_t _pad2;
+        uint8_t unk3;
+    } brake_pdl_frm;
+
+    struct __packed {
+        uint8_t unk1;
+    } unk_frm2;
+
+    struct __packed {
+        uint8_t rpm0;
+        uint8_t rpm1;
+        uint8_t rpm2;
+        uint8_t _pad1;
+        uint8_t _pad2;
+        uint8_t _pad3;
+    } rpm_frm;
 };
 
 static void unknown_frame(int id)
@@ -132,9 +124,9 @@ static void unknown_frame(int id)
 static void process_one(struct can_frame *frm)
 {
 	//int i;
-	union toyoframe *toy;
+	union dataframe *dat;
 
-	toy = (union toyoframe *)frm->data;
+	dat = (union dataframe *)frm->data;
     
     // CAN Arbitration ID is 29 bits, so mask off the upper 3 bits
     // What do the upper 3 bits mean in libsocketCAN?? Flags?	
@@ -146,43 +138,102 @@ static void process_one(struct can_frame *frm)
             clrtoeol();
            
             // Endianness of the 16 bit gear value is wrong - need to check
-            mvprintw(1, 1, "Gear Bytes=%04X unk1=%02X unk2=%02X unk3=%02X unk4=%02X",
-                    toy->shifter.gear,
-                    toy->shifter.unk1,
-                    toy->shifter.unk2,
-                    toy->shifter.unk3,
-                    toy->shifter.unk4
+           
+            uint16_t gear = (dat->shifter_frm.gear & 0xFF00) >> 8 | (dat->shifter_frm.gear & 0x00FF) << 8; 
+             mvprintw(1, 1, "Gear Bytes=%04X unk1=%02X unk2=%02X unk3=%02X unk4=%02X",
+                    gear,
+                    dat->shifter_frm.unk1,
+                    dat->shifter_frm.unk2,
+                    dat->shifter_frm.unk3,
+                    dat->shifter_frm.unk4
                     );
             break;
         
         case DRIVER_DOORS:
             move(2, 1);
             clrtoeol();
-            mvprintw(2, 1, "Driver Door: %s Driver Rear Door: %s Raw Bytes=%02X",
-                    (toy->drv_doors.flag & 0x80) ? "Open" : "Clsd",
-                    (toy->drv_doors.flag & 0x20) ? "Open" : "Clsd",
-                    
-                    toy->drv_doors.flag
-                    );
-            break;
-
-        case TRUNK:
+            mvprintw(2, 1, "Driver Door: %s", (dat->drv_doors_frm.flag & 0x80) ? "Open" : "Clsd");
             move(3, 1);
             clrtoeol();
-            mvprintw(3, 1, "Trunk: %s Raw Bytes=%02X",
-                    (toy->trunk.flag & 0x80) ? "Open" : "Clsd",
-                    toy->trunk.flag
+            mvprintw(3, 1, "Driver Rear Door: %s", (dat->drv_doors_frm.flag & 0x20) ? "Open" : "Clsd");
+            break;
+
+        case PASS_DOORS:
+            move(4, 1);
+            clrtoeol();
+            mvprintw(4, 1, "Passenger Door: %s", (dat->pass_doors_frm.flag & 0x40) ? "Open" : "Clsd");
+            move(5, 1);
+            clrtoeol();
+            mvprintw(5, 1, "Passenger Rear Door: %s", (dat->pass_doors_frm.flag & 0x10) ? "Open" : "Clsd");
+            break;
+        
+        case TRUNK:
+            move(6, 1);
+            clrtoeol();
+            mvprintw(6, 1, "Trunk: %s",
+                    (dat->trunk_frm.flag & 0x80) ? "Open" : "Clsd"
                     );
             break;
 
         case TURN_SIG:
-            move(4, 1);
+            move(7, 1);
             clrtoeol();
-            mvprintw(4, 1, "Turn Signal: %s-%s",                  
-                    (toy->turn_sig.flag & 0x80) ? "<" : "-",
-                    (toy->turn_sig.flag & 0x40) ? ">" : "-"           
+            mvprintw(7, 1, "Turn Signal: %s-%s",                  
+                    (dat->turn_sig_frm.flag & 0x80) ? "<" : "-",
+                    (dat->turn_sig_frm.flag & 0x40) ? ">" : "-"           
                     );
             break;
+        
+        case WHEELS:
+            move(8, 1);
+            clrtoeol();
+            uint16_t ctr = (dat->wheels_frm.counter & 0xFF00) >> 8 | (dat->wheels_frm.counter & 0x00FF) << 8; 
+
+            mvprintw(8, 1, "Wheel 1: %02X Wheel 2: %02X Wheel 3: %02X Wheel 4: %02X Counter: %04X",
+                    dat->wheels_frm.wheel1,
+                    dat->wheels_frm.wheel2,
+                    dat->wheels_frm.wheel3,
+                    dat->wheels_frm.wheel4,
+                    ctr
+                    );
+            break;
+
+        case RPM:
+            move(9, 1);
+            clrtoeol();
+            uint32_t rpm = ( 0x00FFFFFF & ( (uint32_t)dat->rpm_frm.rpm0 << 16 | (uint32_t)dat->rpm_frm.rpm1 << 8 | (uint32_t)dat->rpm_frm.rpm2 ) );
+            mvprintw(9, 1, "RPM: %02X%02X%02X Real RPM? : %d Pad: %02X%02X%02X",
+                    dat->rpm_frm.rpm0,                  
+                    dat->rpm_frm.rpm1,                  
+                    dat->rpm_frm.rpm2,   
+                    rpm,
+                    dat->rpm_frm._pad1,                  
+                    dat->rpm_frm._pad2,                  
+                    dat->rpm_frm._pad3
+                    );
+            break;                  
+
+
+       case BRAKE_PDL:
+            move(10, 1);
+            clrtoeol();
+            mvprintw(10, 1, "Brake Pedal Engaged: %s %02X Byte[2]: %02X Byte[0]: %02X",                  
+                    (dat->brake_pdl_frm.pedal_flag & 0x10) ? "True " : "False",
+                    dat->brake_pdl_frm.pedal_flag,
+                    dat->brake_pdl_frm.unk2,
+                    dat->brake_pdl_frm.unk3
+                    );
+            break;
+
+       case UNK2:
+            move(16, 1);
+            clrtoeol();
+            mvprintw(16, 1, "Byte[0]: %02X",                  
+                    dat->unk_frm2.unk1
+                    );
+            break;
+
+
         
         default:
             //break;
