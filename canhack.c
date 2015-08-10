@@ -141,7 +141,6 @@ static void process_one(struct can_frame *frm)
 	dat = (union dataframe *)frm->data;
     
     // CAN Arbitration ID is 29 bits, so mask off the upper 3 bits
-    // What do the upper 3 bits mean in libsocketCAN?? Flags?	
     switch (frm->can_id & 0x1FFFFFFF) {
 
         case SHIFTER:
@@ -251,7 +250,7 @@ static void process_one(struct can_frame *frm)
 
         
         default:
-            unknown_frame(frm->can_id & 0x7FFFFFFF);
+            unknown_frame(frm->can_id & 0x1FFFFFFF);
         
     }
     
