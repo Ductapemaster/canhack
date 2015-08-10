@@ -24,7 +24,15 @@
 
 #define __packed __attribute__((packed))
 
+// SocketCAN flags
+// Upper 3 bits of ID integer in CAN frame are used for these flags
+#define CAN_EFF_FLAG 0x80000000U
+#define CAN_RTR_FLAG 0x40000000U
+#define CAN_ERR_FLAG 0x20000000U
+
 static int sk;
+static int frame_cnt = 0;
+static int valid_frame_cnt = 0;
 
 union dataframe {
 
@@ -44,20 +52,34 @@ union dataframe {
 
 static void process_one(struct can_frame *frm)
 {
-	//int i;
+	valid_frame_cnt++;
 	union dataframe *dat;
 
 	dat = (union dataframe *)frm->data;
 
+    bool eff_flag = frm->can_id & CAN_EFF_FLAG;
+    bool rtr_flag = frm->can_id & CAN_RTR_FLAG;
+    bool err_flag = frm->can_id & CAN_ERR_FLAG;
+    
     // ID
     move(0, 0);
     clrtoeol();
-    mvprintw(0, 0, "Arbitration ID: %#08X, Flags: %#01X", frm->can_id & 0x7FFFFFFF, frm->can_id & 0x80000000);
-
-    // Hex data
+    move(1, 0);
+    clrtoeol();
     move(2, 0);
     clrtoeol();
-    mvprintw(2, 0, " %02X  %02X  %02X  %02X  %02X  %02X  %02X  %02X", 
+    move(3, 0);
+    clrtoeol();
+    // Should update total framecount when any frame is receved, not just when the filter is matched.
+    mvprintw(0, 0, "Arbitration ID: %#08X, Frame Number: %d/%d", frm->can_id & 0x1FFFFFFF, valid_frame_cnt, frame_cnt);
+    mvprintw(1, 0, "EFF Frame: %s", eff_flag ? "True" : "False");
+    mvprintw(2, 0, "RTR Frame: %s", rtr_flag ? "True" : "False");
+    mvprintw(3, 0, "ERR Frame: %s", err_flag ? "True" : "False");
+
+    // Hex data
+    move(5, 0);
+    clrtoeol();
+    mvprintw(5, 0, " %02X  %02X  %02X  %02X  %02X  %02X  %02X  %02X", 
             dat->generic.b7,
             dat->generic.b6,
             dat->generic.b5,
@@ -69,9 +91,9 @@ static void process_one(struct can_frame *frm)
             );
 
     // Decimal Data
-    move(3, 0);
+    move(6, 0);
     clrtoeol();
-	mvprintw(3, 0, "%03d %03d %03d %03d %03d %03d %03d %03d", 
+	mvprintw(6, 0, "%03d %03d %03d %03d %03d %03d %03d %03d", 
             dat->generic.b7,
             dat->generic.b6,
             dat->generic.b5,
@@ -83,9 +105,9 @@ static void process_one(struct can_frame *frm)
             );
 
     // Char Data
-    move(4, 0);
+    move(7, 0);
     clrtoeol();
-	mvprintw(4, 0, "  %c   %c   %c   %c   %c   %c   %c   %c", 
+	mvprintw(7, 0, "  %c   %c   %c   %c   %c   %c   %c   %c", 
             (dat->generic.b7 > 32 && dat->generic.b7 < 127) ? dat->generic.b7 : '.',
             (dat->generic.b6 > 32 && dat->generic.b6 < 127) ? dat->generic.b6 : '.',
             (dat->generic.b5 > 32 && dat->generic.b5 < 127) ? dat->generic.b5 : '.',
@@ -148,7 +170,9 @@ static void receive_one(uint32_t arb_id)
 		exit(1);
 	}
 
-    if ( (frm.can_id & 0x7FFFFFFF) == arb_id) {
+    frame_cnt++;
+
+    if ( (frm.can_id & 0x1FFFFFFF) == arb_id) {
 	    process_one(&frm);
     }
 }
