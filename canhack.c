@@ -1,6 +1,5 @@
 /*
- * Original work copyright 2013 Fabio Baltieri <fabio.baltieri@gmail.com>
- * Modified work copyright 2015 Dan Kouba
+ * Copyright 2013 Fabio Baltieri <fabio.baltieri@gmail.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,7 +34,8 @@ enum frame_ids {
     WHEELS = 0x0EF86350,
     BRAKE_PDL = 0x12F81010,
     UNK2 = 0x12F83110,
-    RPM = 0x12F85050
+    RPM = 0x12FA85050,
+    UNK1 = 0x12F97150
 };
 
 #define UNKNOWN_COUNT 1024
@@ -74,7 +74,8 @@ union dataframe {
         uint8_t wheel3;
         uint8_t wheel4;
         uint16_t _pad;
-        uint16_t counter;
+        uint8_t counter1;
+        uint8_t counter2;
     } wheels_frm;
 
     struct __packed {
@@ -90,14 +91,24 @@ union dataframe {
     } unk_frm2;
 
     struct __packed {
-        uint8_t rpm0;
-        uint8_t rpm1;
-        uint8_t rpm2;
+        uint8_t spd;
+        uint16_t rpm;
         uint8_t _pad1;
         uint8_t _pad2;
         uint8_t _pad3;
     } rpm_frm;
+
+    struct __packed {
+        uint8_t _pad0;
+        uint16_t unk1;
+    } unk1_frm;
+
 };
+
+inline uint16_t rev_endian(uint16_t x) 
+{
+    return ( ( x & 0xFF00 ) >> 8 ) | ( ( x & 0x00FF) << 8 );
+}
 
 static void unknown_frame(int id)
 {
@@ -131,7 +142,7 @@ static void process_one(struct can_frame *frm)
     
     // CAN Arbitration ID is 29 bits, so mask off the upper 3 bits
     // What do the upper 3 bits mean in libsocketCAN?? Flags?	
-    switch (frm->can_id & 0x7FFFFFFF) {
+    switch (frm->can_id & 0x1FFFFFFF) {
 
         case SHIFTER:
             
@@ -140,9 +151,8 @@ static void process_one(struct can_frame *frm)
            
             // Endianness of the 16 bit gear value is wrong - need to check
            
-            uint16_t gear = (dat->shifter_frm.gear & 0xFF00) >> 8 | (dat->shifter_frm.gear & 0x00FF) << 8; 
-             mvprintw(1, 1, "Gear Bytes=%04X unk1=%02X unk2=%02X unk3=%02X unk4=%02X",
-                    gear,
+            mvprintw(1, 1, "Gear Bytes=%04X unk1=%02X unk2=%02X unk3=%02X unk4=%02X",
+                    rev_endian(dat->shifter_frm.gear),
                     dat->shifter_frm.unk1,
                     dat->shifter_frm.unk2,
                     dat->shifter_frm.unk3,
@@ -153,7 +163,7 @@ static void process_one(struct can_frame *frm)
         case DRIVER_DOORS:
             move(2, 1);
             clrtoeol();
-            mvprintw(2, 1, "Driver Door: %s", (dat->drv_doors_frm.flag & 0x80) ? "Open" : "Clsd");
+            mvprintw(2, 1, "Driver Door:      %s", (dat->drv_doors_frm.flag & 0x80) ? "Open" : "Clsd");
             move(3, 1);
             clrtoeol();
             mvprintw(3, 1, "Driver Rear Door: %s", (dat->drv_doors_frm.flag & 0x20) ? "Open" : "Clsd");
@@ -162,16 +172,16 @@ static void process_one(struct can_frame *frm)
         case PASS_DOORS:
             move(4, 1);
             clrtoeol();
-            mvprintw(4, 1, "Passenger Door: %s", (dat->pass_doors_frm.flag & 0x40) ? "Open" : "Clsd");
+            mvprintw(4, 1, "Pass Door:        %s", (dat->pass_doors_frm.flag & 0x40) ? "Open" : "Clsd");
             move(5, 1);
             clrtoeol();
-            mvprintw(5, 1, "Passenger Rear Door: %s", (dat->pass_doors_frm.flag & 0x10) ? "Open" : "Clsd");
+            mvprintw(5, 1, "Pass Rear Door:   %s", (dat->pass_doors_frm.flag & 0x10) ? "Open" : "Clsd");
             break;
         
         case TRUNK:
             move(6, 1);
             clrtoeol();
-            mvprintw(6, 1, "Trunk: %s",
+            mvprintw(6, 1, "Trunk:            %s",
                     (dat->trunk_frm.flag & 0x80) ? "Open" : "Clsd"
                     );
             break;
@@ -188,26 +198,23 @@ static void process_one(struct can_frame *frm)
         case WHEELS:
             move(8, 1);
             clrtoeol();
-            uint16_t ctr = (dat->wheels_frm.counter & 0xFF00) >> 8 | (dat->wheels_frm.counter & 0x00FF) << 8; 
-
-            mvprintw(8, 1, "Wheel 1: %02X Wheel 2: %02X Wheel 3: %02X Wheel 4: %02X Counter: %04X",
+            mvprintw(8, 1, "Wheel 1: %02X Wheel 2: %02X Wheel 3: %02X Wheel 4: %02X Counter 1: %02X Counter 2: %02X",
                     dat->wheels_frm.wheel1,
                     dat->wheels_frm.wheel2,
                     dat->wheels_frm.wheel3,
                     dat->wheels_frm.wheel4,
-                    ctr
+                    dat->wheels_frm.counter1,
+                    dat->wheels_frm.counter2
                     );
             break;
 
         case RPM:
             move(9, 1);
             clrtoeol();
-            uint32_t rpm = ( 0x00FFFFFF & ( (uint32_t)dat->rpm_frm.rpm0 << 16 | (uint32_t)dat->rpm_frm.rpm1 << 8 | (uint32_t)dat->rpm_frm.rpm2 ) );
-            mvprintw(9, 1, "RPM: %02X%02X%02X Real RPM? : %d Pad: %02X%02X%02X",
-                    dat->rpm_frm.rpm0,                  
-                    dat->rpm_frm.rpm1,                  
-                    dat->rpm_frm.rpm2,   
-                    rpm,
+            mvprintw(9, 1, "RPM: %04X Real RPM?: %u Speed?: %02X Pad: %02X%02X%02X",
+                    rev_endian(dat->rpm_frm.rpm),                  
+                    rev_endian(dat->rpm_frm.rpm),                  
+                    dat->rpm_frm.spd,                  
                     dat->rpm_frm._pad1,                  
                     dat->rpm_frm._pad2,                  
                     dat->rpm_frm._pad3
@@ -234,10 +241,16 @@ static void process_one(struct can_frame *frm)
                     );
             break;
 
+        case UNK1:
+            move(17,1);
+            clrtoeol();
+            int16_t u = (int16_t) rev_endian(dat->unk1_frm.unk1);
+            mvprintw(17, 1, "ST Wheel?: %d, RAW_s: %04X", u, u);
+            break;
+
 
         
         default:
-            //break;
             unknown_frame(frm->can_id & 0x7FFFFFFF);
         
     }
